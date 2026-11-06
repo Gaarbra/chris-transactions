@@ -178,7 +178,7 @@ In postgres, these cached tables are often colloquially referred to as [rollup t
 
 ### Adding Accounts (I)
 
-The file `Ledger/__init.py__` contains our library's python code.
+The file `Ledger/__init__.py` contains our library's python code.
 In this section, we'll see how to use this library to manipulate the database.
 
 First, we'll verify there are no accounts in the database.
@@ -571,7 +571,7 @@ to count the total number of transactions inserted with your improved FOR UPDATE
 
 You should get a number significantly larger than you got in the previous task.
 The `chaosmonkey_parallel.sh` script runs 100 processes in parallel, so you should theoretically see a 100x increase in the number of rows inserted.
-Due to overhead issues, you might see only an 80-90x increase.
+Due to overhead issues, you might see only an 70-90x increase.
 If your increase is smaller than that,
 then you probably did not solve the deadlock issue correctly.
 
