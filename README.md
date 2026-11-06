@@ -365,6 +365,9 @@ and complete all the changes mentioned in task 2 inside their repo.
 
 Chaos monkey works by randomly killing running processes,
 and then checking to see if there was any data corruption.
+The idea is to simulate that there is a "chaos monkey" running around the server room randomly smashing computers with a hammer,
+and netflix wants to be robust to this particular type of failure.
+
 We will will use our own "mini chaos monkey" in this lab to test the robustness of the code you wrote for the previous task.
 
 ### The Problem
@@ -402,6 +405,7 @@ and you can reference this function as an example.
 
 Once you've fixed the `transfer_funds` method,
 rerun the test script to verify that the integrity check is now maintained.
+
 <img width=300px src=img/monkeys.gif />
 
 The incantation might look something like:
@@ -423,7 +427,8 @@ Fork their repo, and make the changes described in task 3 to their code.
 
 ## Task 3: Correctness (With Concurrency)
 
-Transactions prevent certain types of data corruption, but not all types of data corruption.
+Transactions prevent certain types of data corruption,
+but not all types of data corruption.
 In this section, we will introduce a parallel version of the chaos monkey script.
 We'll see that your corrected code you wrote above will still corrupt the database when run concurrently,
 and we'll need a lock to fix the problem.
@@ -494,7 +499,7 @@ You will have to pull the changes that your partner's made to your code back to 
 
 Finally, our code is correct!
 But unfortunately, it's slow.
-We will now see how to speed it up.
+We will now see how to speed it up and actually get the correct data inserted.
 
 ### The Problem
 
@@ -518,7 +523,7 @@ and we can't get any parallel speedup.
 
 The ACCESS EXCLUSIVE lock is a table-level lock and is too restrictive for our purposes.
 A row-level lock would ensure that two transactions don't overwrite the balance of a single user,
-while still allowing two transactions to write to two different users.
+while still allowing two transactions to write to two different users in different rows.
 
 The SELECT/UPDATE pattern in the `transfer_funds` method is an extremely common pattern in database applications.
 (And, as we've seen, an extremely common source of very subtle bugs!)
@@ -537,28 +542,37 @@ To use the row level lock:
 Once you've made the necessary changes,
 verify they work by rerunning the `chaosmonkey_parallel.sh` script and then verifying the integrity check.
 
+### The Solution (part b)
+
+Your code is now fast... but it's incorrect again!!!
+
+When you run the `chaosmonkey_parallel.sh` script,
+you should see a large number of deadlock errors being reported.
+
 > **NOTE:**
-> When you run the `chaosmonkey_parallel.sh` script, you should see a large number of deadlock errors being reported.
-> You will need to fix these errors by wrapping the function in a try/except block,
-> and repeating the failed `transfer_funds` function call.
->
 > These error messages can be hard to find because they are hiding in the sea of debug messages that you have been printing.
 > You can disable the debug messages by modifying the line
 > ```
->   level=logging.DEBUG,
+> level=logging.DEBUG,
 > ```
->  to
+> to
 > ```
->   level=logging.WARNING,
+> level=logging.WARNING,
 > ```
 > inside the configuration of the `logging` module at the top of the script.
 > After making this change, you will see the deadlock errors being printed to the screen because they will not be drowned in a sea of debug statements.
->
-> Recall that when a deadlock occurs, sqlalchemy will raise an exception.
-> If you do not catch this exception, then python will terminate early and unexpectedly.
-> This will cause your script to not insert any more data points.
-> You will pass the integrity check above, but you will still have the wrong contents in the database!
-> This is like Visa just denying your credit card transaction because of a deadlock... that's better than corrupting their internal database, but still not good from a business perspective.
+
+Recall that a *deadlock* occurs when two processes are each blocked by the other process,
+and without any intervention both processes will be waiting forever.
+Postgres solves this problem by arbitrarily picking one of the processes to send a deadlock error... then sqlalchemy will raise an exception.
+If you do not catch this exception,
+then python will terminate early and unexpectedly.
+This will cause your script to not insert any more data points.
+You will pass the integrity check above, but you will still have the wrong contents in the database!
+This is like Visa just denying your credit card transaction because of a deadlock... that's better than corrupting their internal database, but still not good from a business perspective.
+
+To fix this problem, you need to wrap your code in a try/except block and catch the error.
+Repeat the insertion command until both the SELECT and UPDATE command jointly succeed without error.
 
 ### Verifying Speed Boost
 
