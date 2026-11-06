@@ -15,8 +15,25 @@ you should be extra careful in this lab.
 
 ## Task 0: Project Setup
 
-Clone this repo onto the lambda server.
-There is no need to fork the repository.
+You will work with multiple partners throughout this lab.
+There are 4 tasks below, each of which involves modifying some python.
+You will need 2 different partners for completing tasks 2 and 3.
+
+### Getting the code
+
+Create a new repo in github.
+Do not fork this repo---you won't be the main "owner" of the repo and that will make subsequent git steps harder.
+
+Since you didn't fork,
+you'll have to run some simple git incantations to get the code into your repo.
+The following should do the trick:
+```
+$ git clone <your_repo_url>
+$ cd <your_repo>
+$ git remote add upstream <lab_url>
+$ git pull upstream master
+$ git push origin master
+```
 
 ### Bringing up the Database
 
@@ -120,20 +137,28 @@ LEFT JOIN (
 ORDER BY account_id
 ;
 ```
-It turns out that this view requires $O(n)$ time to compute,
+It turns out that this view requires $\Omega(n)$ time to compute,
 where $n$ is the total number of transactions in our history.
 
 > **ASIDE:**
 > We will see in the coming weeks that this query is implemented using an algorithm called SEQUENTIAL SCAN.
 > This algorithm is basically a for loop over the entire `transactions` table,
-> and that's where the $O(n)$ runtime comes from.
+> and that's where the $\Omega(n)$ runtime comes from.
 
 For the small databases we used in the last lab,
 that wasn't a problem.
 But in the real world, this would be a problem.
 Real accounting systems can have trillions of transactions stored in them,
-and so an $O(n)$ operation would be very slow.
+and so an $\Omega(n)$ operation would be very slow.
 We need something that will take $O(1)$ time.
+
+> **NOTE:**
+> I am being formally correct with the $O$ and $\Omega$ notaion above.
+> Recall that $\Omega$ is a *lower bound* and $O$ is an upper bound,
+> and so when we say that a runtime is $\Omega(n)$ we are saying that it cannot be any faster than linear.
+>
+> Many intro data structures classes do not teach the technically correct versions of $O$ and $\Omega$ and rely only on intuition.
+> Wikipedia has an excellent article explaining these distinctions that you are welcome to review: <https://en.wikipedia.org/wiki/Big_O_notation#Formal_definition>.
 
 The `balances` table will let us achieve this faster lookup through *caching*.
 The basic idea is that we should pre-compute the balances as we insert the transactions.
@@ -233,6 +258,15 @@ $ export PYTHONPATH=.
 Now, rerun the `create_accounts.py` script.
 You should see a lot of output of `SELECT` and `INSERT` statements.
 
+> **NOTE:**
+> `import` statements in python are notoriously counterintuitive.
+> There are *many* ways that `import` looks for modules,
+> and basically no one fully understands how the `import` command works.
+>
+> As always, there's an [xkcd](python_environment_2x.png) for that:
+>
+> <img width=400x src=img/python_environment_2x.png />
+
 Connect to psql and run the command
 ```
 SELECT count(*) FROM accounts;
@@ -253,6 +287,17 @@ SELECT sum(balance) FROM balances;
 ```
 should always be 0.
 Make sure you understand why before continuing.
+
+> **NOTE:**
+> A natural question to ask is:
+> why can't a database enforce this constraint automatically?
+> The answer is that arbitrary constraints can take an arbitrary amount of compute to verify.
+> (The SELECT statement above requires $\Omega(n)$ runtime because we must touch every row in the database to compute it.)
+> If we verified these expensive constraints everytime we inserted data into the database,
+> the database would be very slow.
+> Therefore, the SQL standard only supports automatic checks that run in $O(\log n)$ time.
+> The `CHECK` constraint, for example, is a row-only constrain and runs in time $O(1)$;
+> The `UNIQUE` constraint uses an index (which we will learn about soon) to run in time $O(\log n)$.
 
 It is common practice to document these *invariants* that a database should maintain by writing scripts that verify the invariant.
 The script `scripts/integrity_check.sh` verifies that the above invariant is maintained.
@@ -305,6 +350,13 @@ $ sh scripts/integrity_check.sh
 ```
 You won't be able to complete the next task until these checks pass.
 
+## Task 1-2 Interlude
+
+Push your changes to github.
+Then find a partner for Task 2 below.
+You should clone your partner's repo (that has the task 1 changes)
+and complete all the changes mentioned in task 2 inside their repo.
+
 ## Task 2: Correctness (With Failing Processes)
 
 [Chaos monkey](https://netflix.github.io/chaosmonkey/) is a famous netflix tool for testing robust systems.
@@ -350,15 +402,24 @@ and you can reference this function as an example.
 
 Once you've fixed the `transfer_funds` method,
 rerun the test script to verify that the integrity check is now maintained.
+<img width=300px src=img/monkeys.gif />
+
+The incantation might look something like:
 ```
 $ docker-compose down
 $ docker-compose up -d
-$ python3 scripts/create_accounts.py postgresql://postgres:pass@localhost:<PORT> 
-$ sh scripts/chaosmonkey_sequential.sh postgresql://postgres:pass@localhost:<PORT> 
+$ python3 scripts/create_accounts.py postgresql://postgres:pass@localhost:<PORT>
+$ sh scripts/chaosmonkey_sequential.sh postgresql://postgres:pass@localhost:<PORT>
 $ sh scripts/integrity_check.sh
 ```
 
 Like before, you won't be able to complete the next task until these checks pass.
+
+## Task 2-3 Interlude
+
+Push your changes to github and then issue a pull request to your partner's repo.
+Once you've accepted their pull request, you'll need to find a *different* partner for task 3 below.
+Fork their repo, and make the changes described in task 3 to their code.
 
 ## Task 3: Correctness (With Concurrency)
 
@@ -381,12 +442,30 @@ The database will now likely once again fail the integrity check.
 ```
 $ sh scripts/integrity_check.sh
 ```
-This is because multiple transactions are all editing the `balances` table at the same time.
-You should ensure that you understand how the SELECT and UPDATE commands can be interwoven to cause data loss before moving on.
+This is because of a *race condition* in the code.
 
-<!-- FIXME: better explanation -->
+A **race condition** is a bug whose presence depends on the particular order in which concurrent processes happen to interleave their operations.
+The `transfer_funds` method contains one because the SELECT-then-UPDATE sequence on the `balances` table is atomic with respect to crashes,
+but *not* with respect to other concurrent transactions.
+
+Consider what happens if we make two transfers to the same account at the same time.
+The account (we'll call it `A`) starts with 100 dollars; T1 debits $30 and T2 debits $50:
+```
+T1: SELECT balance WHERE account_id=A;  --> 100
+T2: SELECT balance WHERE account_id=A;  --> 100     (both read old value)
+T1: UPDATE balances SET balance=70  WHERE account_id=A;   (100-30 calculated inside python)
+T2: UPDATE balances SET balance=50  WHERE account_id=A;   (100-50 calculated inside python)  <-- T1's write lost
+```
+Both transactions commit without error.
+The `transactions` table correctly records two debits totaling 80,
+but `balances` shows only 50 debited---the 30 debited by T1 was silently lost.
+Now the `SELECT sum(balance)` invariant fails.
+This type of race condition is called a **lost update**.
 
 ### The Solution
+
+The fix is to make the read-modify-write sequence atomic against other writers.
+We do that with a LOCK.
 
 At the top of your `transfer_funds` method,
 add a SQL command that locks the `balances` table in ACCESS EXCLUSIVE MODE.
@@ -404,6 +483,12 @@ SELECT count(*) FROM transactions
 ```
 Make a note of the result so you can compare it to the result in the next section.
 My solution got a result around 1500.
+
+## Task 3-4 Interlude
+
+Once again, get your changes to your partner with a pull request.
+You will do Task 4 below back in your own repo.
+You will have to pull the changes that your partner's made to your code back to the lambda server.
 
 ## Task 4: More Speed
 
@@ -504,4 +589,17 @@ you should always write a script that tests that invariant.
 
 ## Submission
 
-Upload your modified `__init__.py` file to canvas.
+Git has a convenient tool to show who made changes to a particular file called `git blame`.
+Run it on your python code:
+```
+$ git blame ./Ledger/__init__.py
+```
+You will see that most of the code is written by me, and a bit by your partners.
+(Depending on how you did Task 4, you might have overwritten your Task 3 partner's contribution, and so they might not appear in the `git blame` output.
+But your Task 2 partner's code probably should.)
+
+Every git command like this that shows useful debug info about a repo has a corresponding github endpoint.
+Find the corresponding github endpoint for your `Ledger/__init__.py` file in your repo.
+Submit that url to canvas.
+
+I will view the blame output to check that everyone's contributions are correct when grading.
