@@ -2,7 +2,7 @@
 
 set -e
 
-sum_balances=$(docker-compose exec -T pg psql -X -A -w -t <<EOF
+sum_balances=$(docker compose exec -T pg psql -X -A -w -t <<EOF
 SELECT sum(balance) FROM balances;
 EOF
 ) 2>/dev/null
