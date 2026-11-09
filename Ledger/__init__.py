@@ -88,6 +88,11 @@ class Ledger:
             This can result in SQL injection vulnerabilities.
         '''
         with self.connection.begin():
+            # lock the balances table so concurrent transfers can't cause lost updates
+            sql = text('LOCK TABLE balances IN ACCESS EXCLUSIVE MODE;')
+            logging.debug(sql)
+            self.connection.execute(sql)
+
             # insert the transaction
             sql = text(f'INSERT INTO transactions (debit_account_id, credit_account_id, amount) VALUES ({debit_account_id}, {credit_account_id}, {amount});')
             logging.debug(sql)
